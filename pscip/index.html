@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSCIP · Sistema de Engenharia</title>
+<link rel="stylesheet" href="../comum/estilo.css">
+<style>
+  .secao { grid-column: 1 / -1; font-weight: 700; color: var(--azul); border-bottom: 1px solid var(--linha); padding-bottom: .2rem; margin-top: .5rem; }
+  .dica { font-size: .8rem; color: var(--suave); margin-top: .2rem; }
+  .novo-evento { display: flex; gap: .5rem; margin-top: .6rem; }
+  .novo-evento input[type=date] { width: 150px; }
+  .etapas-resumo { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .etapas-resumo button { border: none; cursor: pointer; }
+  .etapas-resumo button.marcado { outline: 2px solid var(--texto); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Projetos de incêndio (PSCIP)</h1>
+  <p class="sub">Clientes, etapas no CBMMT, exigências, prazos e honorários.</p>
+
+  <section class="indicadores" id="indicadores"></section>
+  <div class="etapas-resumo" id="etapasResumo"></div>
+
+  <div class="barra">
+    <input id="busca" type="search" placeholder="Buscar cliente, endereço, protocolo…">
+    <select id="fEtapa"><option value="ativos">Em andamento</option><option value="">Todos</option></select>
+    <span class="espaco"></span>
+    <button class="btn primario" id="btnNovo">+ Novo projeto</button>
+  </div>
+
+  <div class="rolagem"><table class="tabela" id="tabela">
+    <thead><tr><th>Cliente / edificação</th><th>Serviço</th><th>Ocupação</th><th class="num">Área (m²)</th><th>Etapa</th><th>Próximo prazo</th><th class="num">A receber</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="fProj">
+    <header><h2 id="dlgTitulo" style="margin:0">Projeto</h2><button class="fechar" type="button" data-fechar>×</button></header>
+    <div class="corpo">
+      <div class="grade">
+        <div class="secao">Cliente</div>
+        <div class="largo"><label>Cliente (nome / razão social)</label><input name="cliente" required></div>
+        <div><label>Contato</label><input name="contato"></div>
+        <div><label>Telefone</label><input name="telefone" type="tel"></div>
+        <div><label>E-mail</label><input name="email" type="email"></div>
+
+        <div class="secao">Edificação</div>
+        <div class="largo"><label>Edificação (nome / descrição)</label><input name="edificacao" placeholder="ex.: Galpão comercial, Escola X"></div>
+        <div class="largo"><label>Endereço</label><input name="endereco"></div>
+        <div><label>Município</label><input name="municipio"></div>
+        <div><label>Ocupação (grupo/divisão)</label><input name="ocupacao" placeholder="ex.: C-2, E-5, J-2"></div>
+        <div><label>Área construída (m²)</label><input name="area_m2" data-tipo="numero" inputmode="decimal"></div>
+        <div><label>Altura (m)</label><input name="altura_m" data-tipo="numero" inputmode="decimal"></div>
+        <div><label>Pavimentos</label><input name="pavimentos" data-tipo="inteiro" inputmode="numeric"></div>
+        <div><label>Lotação (pessoas)</label><input name="lotacao" data-tipo="inteiro" inputmode="numeric"></div>
+        <div class="largo dica" id="classe"></div>
+
+        <div class="secao">Serviço e andamento</div>
+        <div><label>Tipo de serviço</label><input name="tipo_servico" list="tipos"></div>
+        <div><label>Etapa</label><select name="etapa"></select></div>
+        <div><label>Protocolo CBMMT</label><input name="protocolo"></div>
+        <div><label>Data do protocolo</label><input name="data_protocolo" type="date"></div>
+        <div><label>ART</label><input name="art"></div>
+        <div><label>Próximo prazo</label><input name="prazo" type="date"></div>
+        <div class="largo"><label>Próxima ação</label><input name="proxima_acao" placeholder="ex.: responder exigência, agendar vistoria, enviar memorial"></div>
+
+        <div class="secao">Financeiro</div>
+        <div><label>Honorários (R$)</label><input name="honorarios" data-tipo="numero" inputmode="decimal"></div>
+        <div><label>Recebido (R$)</label><input name="valor_recebido" data-tipo="numero" inputmode="decimal"></div>
+        <div><label>A receber</label><input id="aReceber" disabled></div>
+
+        <div class="largo"><label>Observações</label><textarea name="observacoes"></textarea></div>
+      </div>
+
+      <div id="blocoHist" style="margin-top:1rem">
+        <div class="secao" style="margin-bottom:.5rem">Histórico</div>
+        <ul class="historico" id="hist"></ul>
+        <div class="novo-evento">
+          <input type="date" id="evData">
+          <input id="evTexto" placeholder="O que aconteceu? (ex.: exigência recebida, item 3 – rota de fuga)">
+          <button class="btn" type="button" id="btnEvento">Adicionar</button>
+        </div>
+      </div>
+    </div>
+    <footer>
+      <button class="btn perigo" id="btnExcluir" type="button">Excluir</button>
+      <button class="btn" id="btnTarefa" type="button" title="Cria um cartão no quadro PSCIP do Kanban">→ Tarefa</button>
+      <span class="espaco"></span>
+      <button class="btn" type="button" data-fechar>Fechar</button>
+      <button class="btn primario" value="gravar">Gravar</button>
+    </footer>
+  </form>
+</dialog>
+<datalist id="tipos"></datalist>
+
+<script type="module">
+import { sb, exigirLogin, montarCabecalho } from '../comum/supabase.js';
+import { esc, moeda, numero, seloPrazo, data, hojeISO, aviso, erro, preencherForm, lerForm, lerNumero } from '../comum/ui.js';
+import { ETAPAS, ETAPA, ENCERRADAS, TIPOS_SERVICO, classeAltura, seloEtapa } from './dados.js';
+
+const user = await exigirLogin();
+montarCabecalho('pscip', user);
+
+const $ = id => document.getElementById(id);
+document.querySelectorAll("[data-fechar]").forEach(b => b.onclick = () => b.closest("dialog").close());
+const f = $('fProj');
+let projetos = [];
+let editando = null;
+let etapaFiltro = null;
+
+f.etapa.innerHTML = ETAPAS.map(e => `<option value="${e.id}">${e.nome}</option>`).join('');
+$('fEtapa').innerHTML += ETAPAS.map(e => `<option value="${e.id}">${e.nome}</option>`).join('');
+$('tipos').innerHTML = TIPOS_SERVICO.map(t => `<option value="${esc(t)}">`).join('');
+
+const aReceber = p => p.etapa === 'cancelado' ? 0 : Math.max(0, (p.honorarios || 0) - (p.valor_recebido || 0));
+
+async function carregar() {
+  const { data: d, error } = await sb.from('pscip_projetos').select('*').order('prazo', { nullsFirst: false }).order('created_at', { ascending: false });
+  if (error) return erro(error, 'Erro ao carregar projetos');
+  projetos = d;
+  desenhar();
+  const id = new URLSearchParams(location.search).get('id');
+  if (id && !$('dlg').open) { const p = projetos.find(x => x.id === id); if (p) abrir(p); }
+}
+
+function desenhar() {
+  const ativos = projetos.filter(p => !ENCERRADAS.includes(p.etapa));
+  const exig = projetos.filter(p => p.etapa === 'exigencia').length;
+  const vencidos = ativos.filter(p => p.prazo && p.prazo < hojeISO()).length;
+  const ano = new Date().getFullYear();
+  const fechadosAno = projetos.filter(p => !['orcamento', 'cancelado'].includes(p.etapa) && p.created_at.startsWith(ano));
+  $('indicadores').innerHTML = `
+    <div class="card indicador"><div class="rot">Em andamento</div><div class="val">${ativos.length}</div></div>
+    <div class="card indicador ${exig ? 'alerta' : ''}"><div class="rot">Em exigência</div><div class="val">${exig}</div></div>
+    <div class="card indicador ${vencidos ? 'vencido' : ''}"><div class="rot">Prazos vencidos</div><div class="val">${vencidos}</div></div>
+    <div class="card indicador"><div class="rot">A receber</div><div class="val">${moeda(projetos.reduce((s, p) => s + aReceber(p), 0))}</div></div>
+    <div class="card indicador"><div class="rot">Contratado em ${ano}</div><div class="val">${moeda(fechadosAno.reduce((s, p) => s + (p.honorarios || 0), 0))}</div></div>`;
+
+  const cont = Object.fromEntries(ETAPAS.map(e => [e.id, 0]));
+  projetos.forEach(p => cont[p.etapa]++);
+  $('etapasResumo').innerHTML = ETAPAS.filter(e => cont[e.id]).map(e =>
+    `<button class="selo ${e.cor} ${etapaFiltro === e.id ? 'marcado' : ''}" data-etapa="${e.id}">${e.nome}: ${cont[e.id]}</button>`).join('');
+
+  const busca = $('busca').value.trim().toLowerCase();
+  const sel = etapaFiltro ?? $('fEtapa').value;
+  const lista = projetos
+    .filter(p => sel === 'ativos' ? !ENCERRADAS.includes(p.etapa) : !sel || p.etapa === sel)
+    .filter(p => !busca || [p.cliente, p.edificacao, p.endereco, p.protocolo, p.ocupacao, p.contato].join(' ').toLowerCase().includes(busca));
+
+  $('tabela').tBodies[0].innerHTML = lista.length ? lista.map(p => `
+    <tr data-id="${p.id}">
+      <td><strong>${esc(p.cliente)}</strong>${p.edificacao ? `<br><small>${esc(p.edificacao)}</small>` : ''}${p.protocolo ? `<br><small>Prot. ${esc(p.protocolo)}</small>` : ''}</td>
+      <td>${esc(p.tipo_servico || '')}</td>
+      <td>${esc(p.ocupacao || '')}</td>
+      <td class="num">${p.area_m2 != null ? numero(p.area_m2) : '—'}</td>
+      <td>${seloEtapa(p.etapa)}</td>
+      <td>${p.prazo && !ENCERRADAS.includes(p.etapa) ? seloPrazo(p.prazo) : ''}${p.proxima_acao ? `<br><small>${esc(p.proxima_acao)}</small>` : ''}</td>
+      <td class="num">${aReceber(p) ? moeda(aReceber(p)) : '—'}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="7" class="vazio">${projetos.length ? 'Nenhum projeto neste filtro.' : 'Nenhum projeto ainda. Clique em “+ Novo projeto”.'}</td></tr>`;
+}
+
+$('tabela').tBodies[0].onclick = e => { const tr = e.target.closest('tr[data-id]'); if (tr) abrir(projetos.find(p => p.id === tr.dataset.id)); };
+$('etapasResumo').onclick = e => { const b = e.target.closest('[data-etapa]'); if (!b) return; etapaFiltro = etapaFiltro === b.dataset.etapa ? null : b.dataset.etapa; desenhar(); };
+$('busca').oninput = desenhar;
+$('fEtapa').onchange = () => { etapaFiltro = null; desenhar(); };
+$('btnNovo').onclick = () => abrir(null);
+
+// ---- ficha
+function atualizarCalculos() {
+  const h = lerNumero(f.altura_m.value), pav = f.pavimentos.value ? parseInt(f.pavimentos.value, 10) : null;
+  const c = classeAltura(h, pav);
+  $('classe').textContent = c ? `Classificação quanto à altura: ${c} (referência — confira na NTCB vigente)` : '';
+  const r = Math.max(0, (lerNumero(f.honorarios.value) || 0) - (lerNumero(f.valor_recebido.value) || 0));
+  $('aReceber').value = moeda(r);
+}
+f.addEventListener('input', e => { if (['altura_m', 'pavimentos', 'honorarios', 'valor_recebido'].includes(e.target.name)) atualizarCalculos(); });
+
+async function abrir(p) {
+  editando = p;
+  $('dlgTitulo').textContent = p ? p.cliente : 'Novo projeto PSCIP';
+  $('btnExcluir').hidden = !p; $('btnTarefa').hidden = !p; $('blocoHist').hidden = !p;
+  preencherForm(f, p || { etapa: 'orcamento', municipio: 'Cuiabá', tipo_servico: 'PSCIP', valor_recebido: 0 });
+  atualizarCalculos();
+  $('evData').value = hojeISO(); $('evTexto').value = '';
+  $('hist').innerHTML = '';
+  $('dlg').showModal();
+  if (p) carregarHistorico();
+  history.replaceState(null, '', p ? '?id=' + p.id : location.pathname);
+}
+$('dlg').addEventListener('close', () => history.replaceState(null, '', location.pathname));
+
+async function carregarHistorico() {
+  const { data: ev, error } = await sb.from('pscip_eventos').select('*').eq('projeto_id', editando.id).order('data', { ascending: false }).order('created_at', { ascending: false });
+  if (error) return erro(error, 'Histórico');
+  $('hist').innerHTML = ev.length ? ev.map(x => `<li><time>${data(x.data)}</time><span>${esc(x.descricao)}</span><button class="x" type="button" data-ev="${x.id}" title="Excluir">×</button></li>`).join('')
+    : '<li><span class="dica">Sem registros ainda.</span></li>';
+}
+
+async function registrar(descricao, dt = hojeISO()) {
+  const { error } = await sb.from('pscip_eventos').insert({ projeto_id: editando.id, descricao, data: dt });
+  if (error) erro(error, 'Não registrou no histórico');
+}
+
+$('btnEvento').onclick = async () => {
+  const t = $('evTexto').value.trim(); if (!t || !editando) return;
+  await registrar(t, $('evData').value || hojeISO());
+  $('evTexto').value = ''; carregarHistorico();
+};
+$('evTexto').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('btnEvento').click(); } });
+$('hist').onclick = async e => {
+  const b = e.target.closest('[data-ev]'); if (!b || !confirm('Excluir este registro do histórico?')) return;
+  const { error } = await sb.from('pscip_eventos').delete().eq('id', b.dataset.ev);
+  if (error) return erro(error, 'Não excluiu'); carregarHistorico();
+};
+
+f.addEventListener('submit', async e => {
+  if (e.submitter?.value !== 'gravar') return;
+  e.preventDefault();
+  const d = lerForm(f);
+  d.valor_recebido ??= 0;
+  try {
+    if (editando) {
+      const { error } = await sb.from('pscip_projetos').update(d).eq('id', editando.id);
+      if (error) throw error;
+      if (d.etapa !== editando.etapa) await registrar(`Etapa: ${ETAPA[editando.etapa].nome} → ${ETAPA[d.etapa].nome}`);
+      if (d.protocolo && d.protocolo !== editando.protocolo) await registrar(`Protocolo informado: ${d.protocolo}`, d.data_protocolo || hojeISO());
+    } else {
+      const { data: novo, error } = await sb.from('pscip_projetos').insert(d).select().single();
+      if (error) throw error;
+      editando = novo;
+      await registrar(`Projeto cadastrado (${ETAPA[d.etapa].nome})`);
+    }
+    $('dlg').close(); aviso('Projeto gravado.'); carregar();
+  } catch (err) { erro(err, 'Não gravou'); }
+});
+
+$('btnExcluir').onclick = async () => {
+  if (!editando || !confirm(`Excluir o projeto de "${editando.cliente}" e todo o histórico?`)) return;
+  const { error } = await sb.from('pscip_projetos').delete().eq('id', editando.id);
+  if (error) return erro(error, 'Não excluiu');
+  $('dlg').close(); aviso('Projeto excluído.'); carregar();
+};
+
+$('btnTarefa').onclick = async () => {
+  const titulo = prompt('Título da tarefa:', `${editando.cliente} — ${f.proxima_acao.value || 'próxima ação'}`);
+  if (!titulo) return;
+  const { error } = await sb.from('tarefas').insert({ quadro: 'PSCIP', titulo, etiqueta: 'PSCIP', prazo: f.prazo.value || null, descricao: editando.edificacao || null, ordem: Date.now() / 1e9 });
+  if (error) return erro(error, 'Não criou a tarefa');
+  aviso('Tarefa criada no quadro PSCIP.');
+};
+
+carregar();
+</script>
+</body>
+</html>

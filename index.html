@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel · Sistema de Engenharia</title>
+<link rel="stylesheet" href="comum/estilo.css">
+</head>
+<body>
+<main>
+  <h1 id="ola">Painel</h1>
+  <p class="sub">Visão geral das suas tarefas, projetos e prazos.</p>
+
+  <section class="indicadores" id="indicadores"></section>
+
+  <section class="card" style="margin-bottom:1.25rem">
+    <h2>Próximos prazos (vencidos e próximos 30 dias)</h2>
+    <div class="rolagem"><table class="tabela" id="tPrazos">
+      <thead><tr><th>Prazo</th><th>Módulo</th><th>Item</th><th>Situação</th></tr></thead><tbody></tbody>
+    </table></div>
+  </section>
+
+  <h2>Módulos</h2>
+  <section class="modulos" id="modulos"></section>
+</main>
+
+<script type="module">
+import { sb, exigirLogin, montarCabecalho, MODULOS, RAIZ } from './comum/supabase.js';
+import { esc, moeda, seloPrazo, diasAte, erro } from './comum/ui.js';
+import { ETAPA, ENCERRADAS, seloEtapa } from './pscip/dados.js';
+
+const user = await exigirLogin();
+montarCabecalho('painel', user);
+
+const DESCR = {
+  kanban: 'Quadros de tarefas: a fazer, fazendo, aguardando, feito',
+  pscip: 'Projetos de incêndio: etapas, protocolo, exigências, honorários',
+  obras: 'Planilha da obra, aditivos e boletins de medição',
+  relatorio: 'Relatório de obra / diário com fotos',
+  orcamento: 'SINAPI-MT, BDI, curva ABC e cronograma',
+  laudos: 'Laudos de vistoria e de avaliação',
+  processos: 'Processos SIGED com prazos em dias úteis',
+};
+document.getElementById('modulos').innerHTML = MODULOS.filter(m => m.id !== 'painel').map(m => `
+  <a class="card modulo ${m.pronto ? '' : 'breve'}" ${m.pronto ? `href="${RAIZ + m.href}"` : ''}>
+    <strong>${esc(m.nome)} ${m.pronto ? '' : '<span class="selo cinza">em breve</span>'}</strong>
+    <span>${esc(DESCR[m.id] || '')}</span></a>`).join('');
+
+try {
+  const [tar, psc] = await Promise.all([
+    sb.from('tarefas').select('id,titulo,quadro,coluna,prazo').neq('coluna', 'feito'),
+    sb.from('pscip_projetos').select('id,cliente,etapa,prazo,proxima_acao,honorarios,valor_recebido'),
+  ]);
+  if (tar.error) throw tar.error;
+  if (psc.error) throw psc.error;
+
+  const tarefas = tar.data, projetos = psc.data;
+  const ativos = projetos.filter(p => !ENCERRADAS.includes(p.etapa));
+  const vencidas = tarefas.filter(t => t.prazo && diasAte(t.prazo) < 0).length
+    + ativos.filter(p => p.prazo && diasAte(p.prazo) < 0).length;
+  const aReceber = projetos.filter(p => p.etapa !== 'cancelado')
+    .reduce((s, p) => s + Math.max(0, (p.honorarios || 0) - (p.valor_recebido || 0)), 0);
+
+  document.getElementById('indicadores').innerHTML = `
+    <div class="card indicador"><div class="rot">Tarefas abertas</div><div class="val">${tarefas.length}</div></div>
+    <div class="card indicador ${vencidas ? 'vencido' : ''}"><div class="rot">Prazos vencidos</div><div class="val">${vencidas}</div></div>
+    <div class="card indicador"><div class="rot">PSCIP em andamento</div><div class="val">${ativos.length}</div></div>
+    <div class="card indicador"><div class="rot">PSCIP a receber</div><div class="val">${moeda(aReceber)}</div></div>`;
+
+  const itens = [
+    ...tarefas.filter(t => t.prazo).map(t => ({ prazo: t.prazo, mod: 'Tarefa', nome: t.titulo + ` (${t.quadro})`, sit: '', href: `kanban/index.html?quadro=${encodeURIComponent(t.quadro)}` })),
+    ...ativos.filter(p => p.prazo).map(p => ({ prazo: p.prazo, mod: 'PSCIP', nome: p.cliente + (p.proxima_acao ? ' — ' + p.proxima_acao : ''), sit: seloEtapa(p.etapa), href: `pscip/index.html?id=${p.id}` })),
+  ].filter(i => diasAte(i.prazo) <= 30).sort((a, b) => a.prazo.localeCompare(b.prazo));
+
+  const tb = document.querySelector('#tPrazos tbody');
+  tb.innerHTML = itens.length ? itens.map(i => `
+    <tr data-href="${esc(i.href)}"><td>${seloPrazo(i.prazo)}</td><td>${i.mod}</td><td>${esc(i.nome)}</td><td>${i.sit}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="vazio">Nenhum prazo vencido ou nos próximos 30 dias.</td></tr>';
+  tb.onclick = e => { const tr = e.target.closest('tr[data-href]'); if (tr) location.href = RAIZ + tr.dataset.href; };
+} catch (e) {
+  erro(e, 'Não foi possível carregar o painel');
+  if (/relation|does not exist|schema cache/i.test(e.message || '')) {
+    document.getElementById('indicadores').innerHTML = `<div class="card largo">O banco ainda não foi criado. Rode o arquivo <code>banco/0001_base.sql</code> no SQL Editor do Supabase.</div>`;
+  }
+}
+</script>
+</body>
+</html>

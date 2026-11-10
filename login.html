@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar · Sistema de Engenharia</title>
+<link rel="stylesheet" href="comum/estilo.css">
+</head>
+<body>
+<div class="tela-login">
+  <div class="card caixa-login">
+    <div class="marca"><span class="logo">HR</span> Sistema de Engenharia</div>
+    <h2 id="titulo">Entrar</h2>
+    <div id="msg"></div>
+
+    <form id="fEntrar">
+      <div><label for="email">E-mail</label><input id="email" type="email" autocomplete="email" required></div>
+      <div id="campoSenha"><label for="senha">Senha</label><input id="senha" type="password" autocomplete="current-password" minlength="6"></div>
+      <button class="btn primario" id="btnAcao" type="submit">Entrar</button>
+      <div class="links">
+        <a id="lnkCriar">Criar conta</a>
+        <a id="lnkRecuperar">Esqueci a senha</a>
+      </div>
+    </form>
+
+    <form id="fNovaSenha" hidden>
+      <div><label for="nova">Nova senha</label><input id="nova" type="password" autocomplete="new-password" minlength="6" required></div>
+      <button class="btn primario" type="submit">Gravar nova senha</button>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+import { sb, RAIZ } from './comum/supabase.js';
+
+const $ = id => document.getElementById(id);
+let modo = 'entrar';
+
+function destino() {
+  const v = new URLSearchParams(location.search).get('voltar');
+  // só aceita caminho do próprio site
+  return (v && v.startsWith('/') && !v.startsWith('//')) ? v : RAIZ + 'index.html';
+}
+function mensagem(txt, tipo = 'erro') { $('msg').innerHTML = txt ? `<div class="msg ${tipo}"></div>` : ''; if (txt) $('msg').firstChild.textContent = txt; }
+
+function trocarModo(m) {
+  modo = m; mensagem('');
+  const cfg = {
+    entrar:    ['Entrar', 'Entrar', true, 'Criar conta', 'current-password'],
+    criar:     ['Criar conta', 'Criar conta', true, 'Já tenho conta', 'new-password'],
+    recuperar: ['Recuperar senha', 'Enviar link por e-mail', false, 'Voltar para entrar', 'current-password'],
+  }[m];
+  $('titulo').textContent = cfg[0]; $('btnAcao').textContent = cfg[1];
+  $('campoSenha').hidden = !cfg[2]; $('senha').required = cfg[2];
+  $('lnkCriar').textContent = cfg[3]; $('senha').autocomplete = cfg[4];
+  $('lnkRecuperar').hidden = m !== 'entrar';
+}
+$('lnkCriar').onclick = () => trocarModo(modo === 'entrar' ? 'criar' : 'entrar');
+$('lnkRecuperar').onclick = () => trocarModo('recuperar');
+
+// já logado? segue direto
+const { data: { session } } = await sb.auth.getSession();
+const recuperando = location.hash.includes('type=recovery');
+if (session && !recuperando) location.replace(destino());
+
+sb.auth.onAuthStateChange((ev) => {
+  if (ev === 'PASSWORD_RECOVERY') {
+    $('fEntrar').hidden = true; $('fNovaSenha').hidden = false;
+    $('titulo').textContent = 'Criar nova senha'; mensagem('');
+  }
+});
+
+$('fEntrar').onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $('email').value.trim(), senha = $('senha').value;
+  $('btnAcao').disabled = true;
+  try {
+    if (modo === 'entrar') {
+      const { error } = await sb.auth.signInWithPassword({ email, password: senha });
+      if (error) throw error;
+      location.replace(destino());
+    } else if (modo === 'criar') {
+      const { data, error } = await sb.auth.signUp({ email, password: senha, options: { emailRedirectTo: RAIZ + 'login.html' } });
+      if (error) throw error;
+      if (data.session) location.replace(destino());
+      else mensagem('Conta criada. Abra o e-mail de confirmação que o Supabase enviou e depois entre aqui.', 'ok');
+    } else {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: RAIZ + 'login.html' });
+      if (error) throw error;
+      mensagem('Se o e-mail estiver cadastrado, chega um link para criar a nova senha.', 'ok');
+    }
+  } catch (err) {
+    const m = err.message || String(err);
+    mensagem(/Invalid login/i.test(m) ? 'E-mail ou senha incorretos.'
+      : /Email not confirmed/i.test(m) ? 'Confirme o e-mail antes de entrar (veja sua caixa de entrada).'
+      : /already registered/i.test(m) ? 'Este e-mail já tem conta. Use "Entrar".' : m);
+  } finally { $('btnAcao').disabled = false; }
+};
+
+$('fNovaSenha').onsubmit = async (e) => {
+  e.preventDefault();
+  const { error } = await sb.auth.updateUser({ password: $('nova').value });
+  if (error) return mensagem(error.message);
+  mensagem('Senha alterada. Entrando…', 'ok');
+  setTimeout(() => location.replace(RAIZ + 'index.html'), 800);
+};
+</script>
+</body>
+</html>

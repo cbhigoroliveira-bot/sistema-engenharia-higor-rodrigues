@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tarefas · Sistema de Engenharia</title>
+<link rel="stylesheet" href="../comum/estilo.css">
+<style>
+  .quadro { display: grid; grid-template-columns: repeat(4, minmax(240px, 1fr)); gap: .75rem; overflow-x: auto; align-items: start; }
+  .coluna { background: #e9eef4; border-radius: var(--raio); padding: .6rem; min-height: 200px; }
+  .coluna.sobre { outline: 2px dashed var(--azul); background: #dbeafe; }
+  .coluna > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; font-weight: 600; }
+  .coluna > header .qtd { color: var(--suave); font-weight: 400; font-size: .85rem; }
+  .cartoes { display: grid; gap: .5rem; min-height: 40px; }
+  .tarefa { background: #fff; border-radius: 8px; padding: .55rem .65rem; box-shadow: var(--sombra); cursor: grab; border-left: 4px solid #cbd5e1; }
+  .tarefa.alta { border-left-color: var(--vermelho); } .tarefa.media { border-left-color: #f59e0b; } .tarefa.baixa { border-left-color: #94a3b8; }
+  .tarefa.arrastando { opacity: .45; }
+  .tarefa .t { font-weight: 600; margin-bottom: .2rem; word-break: break-word; }
+  .tarefa .d { font-size: .82rem; color: var(--suave); white-space: pre-line; max-height: 3.6em; overflow: hidden; }
+  .tarefa .rod { display: flex; gap: .35rem; align-items: center; margin-top: .35rem; flex-wrap: wrap; }
+  .tarefa .mover { margin-left: auto; display: flex; gap: .15rem; }
+  .tarefa .mover button { border: 1px solid var(--linha); background: #fff; border-radius: 5px; cursor: pointer; padding: 0 .35rem; color: var(--suave); }
+  .novo { width: 100%; margin-top: .5rem; background: transparent; border: 1px dashed #94a3b8; color: var(--suave); }
+  .coluna[data-col="feito"] .tarefa .t { text-decoration: line-through; color: var(--suave); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tarefas</h1>
+  <p class="sub">Arraste os cartões entre as colunas (no celular, use as setas ◀ ▶).</p>
+
+  <div class="barra">
+    <label for="selQuadro" style="margin:0">Quadro</label>
+    <select id="selQuadro"></select>
+    <button class="btn fino" id="btnNovoQuadro">+ Novo quadro</button>
+    <input id="busca" type="search" placeholder="Filtrar tarefas…">
+    <span class="espaco"></span>
+    <label style="margin:0;display:flex;gap:.35rem;align-items:center;white-space:nowrap"><input type="checkbox" id="chkFeitas" style="width:auto"> mostrar feitas antigas</label>
+  </div>
+
+  <section class="quadro" id="quadro"></section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="fTarefa">
+    <header><h2 id="dlgTitulo" style="margin:0">Tarefa</h2><button class="fechar" type="button" data-fechar>×</button></header>
+    <div class="corpo grade">
+      <div class="largo"><label>Título</label><input name="titulo" required maxlength="200"></div>
+      <div class="largo"><label>Descrição</label><textarea name="descricao"></textarea></div>
+      <div><label>Coluna</label><select name="coluna"></select></div>
+      <div><label>Prioridade</label><select name="prioridade"><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select></div>
+      <div><label>Prazo</label><input name="prazo" type="date"></div>
+      <div><label>Etiqueta</label><input name="etiqueta" list="etiquetas" placeholder="ex.: CMEI, PSCIP, SME"></div>
+      <div><label>Quadro</label><input name="quadro" list="quadros" required></div>
+    </div>
+    <footer>
+      <button class="btn perigo" id="btnExcluir" type="button">Excluir</button>
+      <span class="espaco"></span>
+      <button class="btn" type="button" data-fechar>Cancelar</button>
+      <button class="btn primario" value="gravar">Gravar</button>
+    </footer>
+  </form>
+</dialog>
+<datalist id="etiquetas"></datalist><datalist id="quadros"></datalist>
+
+<script type="module">
+import { sb, exigirLogin, montarCabecalho } from '../comum/supabase.js';
+import { esc, seloPrazo, aviso, erro, pref, preencherForm, lerForm } from '../comum/ui.js';
+
+const user = await exigirLogin();
+montarCabecalho('kanban', user);
+
+const COLUNAS = [
+  { id: 'a_fazer', nome: 'A fazer' }, { id: 'fazendo', nome: 'Fazendo' },
+  { id: 'aguardando', nome: 'Aguardando terceiros' }, { id: 'feito', nome: 'Feito' },
+];
+const $ = id => document.getElementById(id);
+document.querySelectorAll("[data-fechar]").forEach(b => b.onclick = () => b.closest("dialog").close());
+let tarefas = [];
+let quadroAtual = new URLSearchParams(location.search).get('quadro') || pref.ler('kanban.quadro', 'Geral');
+let editando = null;
+
+$('fTarefa').coluna.innerHTML = COLUNAS.map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+
+async function carregar() {
+  const { data, error } = await sb.from('tarefas').select('*').order('ordem');
+  if (error) return erro(error, 'Erro ao carregar tarefas');
+  tarefas = data;
+  desenhar();
+}
+
+function quadros() {
+  const s = new Set(['Geral', quadroAtual, ...tarefas.map(t => t.quadro)]);
+  return [...s].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
+function desenhar() {
+  const qs = quadros();
+  $('selQuadro').innerHTML = qs.map(q => `<option ${q === quadroAtual ? 'selected' : ''}>${esc(q)}</option>`).join('');
+  $('quadros').innerHTML = qs.map(q => `<option value="${esc(q)}">`).join('');
+  $('etiquetas').innerHTML = [...new Set(tarefas.map(t => t.etiqueta).filter(Boolean))].map(e => `<option value="${esc(e)}">`).join('');
+
+  const filtro = $('busca').value.trim().toLowerCase();
+  const limiteFeitas = Date.now() - 14 * 86400000;
+  const doQuadro = tarefas.filter(t => t.quadro === quadroAtual)
+    .filter(t => !filtro || `${t.titulo} ${t.descricao || ''} ${t.etiqueta || ''}`.toLowerCase().includes(filtro))
+    .filter(t => $('chkFeitas').checked || t.coluna !== 'feito' || !t.concluida_em || new Date(t.concluida_em) > limiteFeitas);
+
+  $('quadro').innerHTML = COLUNAS.map((c, i) => {
+    const itens = doQuadro.filter(t => t.coluna === c.id).sort((a, b) => a.ordem - b.ordem);
+    return `<div class="coluna" data-col="${c.id}">
+      <header><span>${c.nome}</span><span class="qtd">${itens.length}</span></header>
+      <div class="cartoes">${itens.map(t => cartao(t, i)).join('')}</div>
+      <button class="btn fino novo" data-novo="${c.id}">+ Nova tarefa</button></div>`;
+  }).join('');
+}
+
+function cartao(t, i) {
+  return `<div class="tarefa ${t.prioridade}" draggable="true" data-id="${t.id}">
+    <div class="t">${esc(t.titulo)}</div>
+    ${t.descricao ? `<div class="d">${esc(t.descricao)}</div>` : ''}
+    <div class="rod">
+      ${t.etiqueta ? `<span class="selo azul">${esc(t.etiqueta)}</span>` : ''}
+      ${t.prazo && t.coluna !== 'feito' ? seloPrazo(t.prazo) : ''}
+      <span class="mover">
+        ${i > 0 ? `<button type="button" data-mover="-1" title="Coluna anterior">◀</button>` : ''}
+        ${i < COLUNAS.length - 1 ? `<button type="button" data-mover="1" title="Próxima coluna">▶</button>` : ''}
+      </span>
+    </div></div>`;
+}
+
+async function mover(id, coluna, ordem) {
+  const t = tarefas.find(x => x.id === id);
+  if (!t) return;
+  const mudanca = { coluna, ordem, concluida_em: coluna === 'feito' ? (t.concluida_em || new Date().toISOString()) : null };
+  Object.assign(t, mudanca);
+  desenhar();
+  const { error } = await sb.from('tarefas').update(mudanca).eq('id', id);
+  if (error) { erro(error, 'Não gravou a mudança'); carregar(); }
+}
+
+function ordemFinal(coluna) {
+  const os = tarefas.filter(t => t.quadro === quadroAtual && t.coluna === coluna).map(t => t.ordem);
+  return os.length ? Math.max(...os) + 1 : 1;
+}
+
+// ---- cliques
+$('quadro').addEventListener('click', e => {
+  const btnMover = e.target.closest('[data-mover]');
+  if (btnMover) {
+    const id = btnMover.closest('.tarefa').dataset.id;
+    const t = tarefas.find(x => x.id === id);
+    const idx = COLUNAS.findIndex(c => c.id === t.coluna) + Number(btnMover.dataset.mover);
+    return mover(id, COLUNAS[idx].id, ordemFinal(COLUNAS[idx].id));
+  }
+  const novo = e.target.closest('[data-novo]');
+  if (novo) return abrir(null, novo.dataset.novo);
+  const card = e.target.closest('.tarefa');
+  if (card) abrir(tarefas.find(t => t.id === card.dataset.id));
+});
+
+// ---- arrastar e soltar
+let arrastado = null;
+$('quadro').addEventListener('dragstart', e => {
+  const card = e.target.closest('.tarefa'); if (!card) return;
+  arrastado = card.dataset.id; card.classList.add('arrastando');
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', arrastado);
+});
+$('quadro').addEventListener('dragend', e => { e.target.closest('.tarefa')?.classList.remove('arrastando'); document.querySelectorAll('.sobre').forEach(c => c.classList.remove('sobre')); });
+$('quadro').addEventListener('dragover', e => {
+  const col = e.target.closest('.coluna'); if (!col || !arrastado) return;
+  e.preventDefault();
+  document.querySelectorAll('.sobre').forEach(c => c !== col && c.classList.remove('sobre'));
+  col.classList.add('sobre');
+});
+$('quadro').addEventListener('drop', e => {
+  const col = e.target.closest('.coluna'); if (!col || !arrastado) return;
+  e.preventDefault();
+  const coluna = col.dataset.col;
+  // posição: antes do cartão sob o ponteiro
+  const cards = [...col.querySelectorAll('.tarefa')].filter(c => c.dataset.id !== arrastado);
+  const depois = cards.find(c => e.clientY < c.getBoundingClientRect().top + c.offsetHeight / 2);
+  const ord = id => tarefas.find(t => t.id === id).ordem;
+  let ordem;
+  if (!cards.length) ordem = 1;
+  else if (!depois) ordem = ord(cards.at(-1).dataset.id) + 1;
+  else {
+    const i = cards.indexOf(depois);
+    const prox = ord(depois.dataset.id), ant = i > 0 ? ord(cards[i - 1].dataset.id) : prox - 2;
+    ordem = (ant + prox) / 2;
+  }
+  const id = arrastado; arrastado = null;
+  mover(id, coluna, ordem);
+});
+
+// ---- diálogo
+function abrir(t, coluna = 'a_fazer') {
+  editando = t;
+  $('dlgTitulo').textContent = t ? 'Editar tarefa' : 'Nova tarefa';
+  $('btnExcluir').hidden = !t;
+  preencherForm($('fTarefa'), t || { coluna, prioridade: 'media', quadro: quadroAtual });
+  $('dlg').showModal();
+  $('fTarefa').titulo.focus();
+}
+
+$('fTarefa').addEventListener('submit', async e => {
+  if (e.submitter?.value !== 'gravar') return;
+  e.preventDefault();
+  const d = lerForm($('fTarefa'));
+  d.quadro = d.quadro || 'Geral';
+  try {
+    if (editando) {
+      if (d.coluna !== editando.coluna || d.quadro !== editando.quadro) {
+        d.ordem = ordemFinal(d.coluna);
+        d.concluida_em = d.coluna === 'feito' ? (editando.concluida_em || new Date().toISOString()) : null;
+      }
+      const { error } = await sb.from('tarefas').update(d).eq('id', editando.id);
+      if (error) throw error;
+    } else {
+      d.ordem = ordemFinal(d.coluna);
+      if (d.coluna === 'feito') d.concluida_em = new Date().toISOString();
+      const { error } = await sb.from('tarefas').insert(d);
+      if (error) throw error;
+    }
+    $('dlg').close();
+    if (d.quadro !== quadroAtual) trocarQuadro(d.quadro);
+    aviso('Tarefa gravada.');
+    carregar();
+  } catch (err) { erro(err, 'Não gravou'); }
+});
+
+$('btnExcluir').onclick = async () => {
+  if (!editando || !confirm(`Excluir a tarefa "${editando.titulo}"?`)) return;
+  const { error } = await sb.from('tarefas').delete().eq('id', editando.id);
+  if (error) return erro(error, 'Não excluiu');
+  $('dlg').close(); aviso('Tarefa excluída.'); carregar();
+};
+
+// ---- quadros e filtros
+function trocarQuadro(q) {
+  quadroAtual = q; pref.gravar('kanban.quadro', q);
+  history.replaceState(null, '', '?quadro=' + encodeURIComponent(q));
+  desenhar();
+}
+$('selQuadro').onchange = e => trocarQuadro(e.target.value);
+$('btnNovoQuadro').onclick = () => {
+  const nome = prompt('Nome do novo quadro (ex.: SME, PSCIP, Pessoal):');
+  if (nome?.trim()) trocarQuadro(nome.trim());
+};
+$('busca').oninput = desenhar;
+$('chkFeitas').onchange = desenhar;
+
+carregar();
+</script>
+</body>
+</html>
