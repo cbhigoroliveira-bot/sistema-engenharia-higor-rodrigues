@@ -11,6 +11,7 @@ Eng. Higor Junior Rodrigues de Oliveira — Engenheiro Civil e de Segurança do 
 | --- | --- | --- |
 | 0 | Login, painel com prazos | pronto |
 | 0 | Tarefas (Kanban): quadros, arrastar entre colunas, prioridade, prazo, etiqueta | pronto |
+| 0 | Manutenções escolares (TMF / D3): demandas por empresa, OS, prazos, canceladas — importadas do quadro antigo | pronto |
 | 1 | PSCIP: clientes, edificação, etapas no CBMMT, exigências, protocolo, ART, honorários, histórico | pronto |
 | 2 | Obras e medições (BM): planilha, aditivos, boletim em PDF | a fazer |
 | 3 | Relatório de obra / diário com fotos | a fazer |
@@ -24,6 +25,7 @@ Eng. Higor Junior Rodrigues de Oliveira — Engenheiro Civil e de Segurança do 
 index.html            Painel (exige login): indicadores e próximos prazos
 login.html            Entrar, criar conta, recuperar senha
 kanban/index.html     Quadros de tarefas
+manutencoes/index.html Manutenções nas escolas (TMF / D3)
 pscip/index.html      Projetos de incêndio
 pscip/dados.js        Etapas, tipos de serviço, classificação por altura
 comum/config.js       Endereço e chave PÚBLICA do Supabase

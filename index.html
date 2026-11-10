@@ -34,6 +34,7 @@ montarCabecalho('painel', user);
 
 const DESCR = {
   kanban: 'Quadros de tarefas: a fazer, fazendo, aguardando, feito',
+  manutencoes: 'Demandas nas escolas por empresa (TMF / D3): OS, prazos, atrasos',
   pscip: 'Projetos de incêndio: etapas, protocolo, exigências, honorários',
   obras: 'Planilha da obra, aditivos e boletins de medição',
   relatorio: 'Relatório de obra / diário com fotos',
@@ -47,28 +48,33 @@ document.getElementById('modulos').innerHTML = MODULOS.filter(m => m.id !== 'pai
     <span>${esc(DESCR[m.id] || '')}</span></a>`).join('');
 
 try {
-  const [tar, psc] = await Promise.all([
+  const [tar, psc, man] = await Promise.all([
     sb.from('tarefas').select('id,titulo,quadro,coluna,prazo').neq('coluna', 'feito'),
     sb.from('pscip_projetos').select('id,cliente,etapa,prazo,proxima_acao,honorarios,valor_recebido'),
+    sb.from('manutencoes').select('id,escola,servico,empresa,prazo,status').in('status', ['afazer', 'andamento']),
   ]);
+  const manut = man.error ? [] : man.data;  // tabela pode ainda não existir
   if (tar.error) throw tar.error;
   if (psc.error) throw psc.error;
 
   const tarefas = tar.data, projetos = psc.data;
   const ativos = projetos.filter(p => !ENCERRADAS.includes(p.etapa));
   const vencidas = tarefas.filter(t => t.prazo && diasAte(t.prazo) < 0).length
-    + ativos.filter(p => p.prazo && diasAte(p.prazo) < 0).length;
+    + ativos.filter(p => p.prazo && diasAte(p.prazo) < 0).length
+    + manut.filter(m => m.prazo && diasAte(m.prazo) < 0).length;
   const aReceber = projetos.filter(p => p.etapa !== 'cancelado')
     .reduce((s, p) => s + Math.max(0, (p.honorarios || 0) - (p.valor_recebido || 0)), 0);
 
   document.getElementById('indicadores').innerHTML = `
     <div class="card indicador"><div class="rot">Tarefas abertas</div><div class="val">${tarefas.length}</div></div>
     <div class="card indicador ${vencidas ? 'vencido' : ''}"><div class="rot">Prazos vencidos</div><div class="val">${vencidas}</div></div>
+    <div class="card indicador"><div class="rot">Manutenções em aberto</div><div class="val">${manut.length}</div></div>
     <div class="card indicador"><div class="rot">PSCIP em andamento</div><div class="val">${ativos.length}</div></div>
     <div class="card indicador"><div class="rot">PSCIP a receber</div><div class="val">${moeda(aReceber)}</div></div>`;
 
   const itens = [
     ...tarefas.filter(t => t.prazo).map(t => ({ prazo: t.prazo, mod: 'Tarefa', nome: t.titulo + ` (${t.quadro})`, sit: '', href: `kanban/index.html?quadro=${encodeURIComponent(t.quadro)}` })),
+    ...manut.filter(m => m.prazo).map(m => ({ prazo: m.prazo, mod: 'Manutenção', nome: `${m.escola} — ${m.servico.slice(0, 70)}${m.empresa ? ' (' + m.empresa + ')' : ''}`, sit: '', href: 'manutencoes/index.html' })),
     ...ativos.filter(p => p.prazo).map(p => ({ prazo: p.prazo, mod: 'PSCIP', nome: p.cliente + (p.proxima_acao ? ' — ' + p.proxima_acao : ''), sit: seloEtapa(p.etapa), href: `pscip/index.html?id=${p.id}` })),
   ].filter(i => diasAte(i.prazo) <= 30).sort((a, b) => a.prazo.localeCompare(b.prazo));
 

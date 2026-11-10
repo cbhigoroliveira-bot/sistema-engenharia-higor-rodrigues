@@ -11,6 +11,7 @@ export const RAIZ = new URL('../', import.meta.url).href;
 export const MODULOS = [
   { id: 'painel',  nome: 'Painel',         href: 'index.html',        pronto: true },
   { id: 'kanban',  nome: 'Tarefas',        href: 'kanban/index.html', pronto: true },
+  { id: 'manutencoes', nome: 'Manutenções', href: 'manutencoes/index.html', pronto: true },
   { id: 'pscip',   nome: 'PSCIP',          href: 'pscip/index.html',  pronto: true },
   { id: 'obras',   nome: 'Obras e medições', href: null, pronto: false },
   { id: 'relatorio', nome: 'Relatório de obra', href: null, pronto: false },

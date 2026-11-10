@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manutenções escolares · Sistema de Engenharia</title>
+<link rel="stylesheet" href="../comum/estilo.css">
+<style>
+  :root { --tmf: #1565c0; --d3: #c62828; --todo: #6b7f93; --doing: #c98a0b; --done: #2f8a5a; }
+  .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-bottom: .75rem; }
+  .seg button { text-align: left; display: grid; gap: 2px; padding: .6rem .85rem; border: 1px solid var(--linha); background: #fff; border-radius: 10px; border-top: 4px solid var(--sc); cursor: pointer; font: inherit; color: var(--texto); }
+  .seg button[aria-pressed="true"] { background: var(--sc); color: #fff; border-color: var(--sc); }
+  .seg button[data-k=""] { --sc: var(--azul); } .seg button[data-k="TMF"] { --sc: var(--tmf); } .seg button[data-k="D3"] { --sc: var(--d3); }
+  .seg .nm { font-weight: 700; font-size: 1.15rem; } .seg .info { font-size: .8rem; opacity: .9; }
+  .seg button:not([aria-pressed="true"]) .sub { color: var(--suave); }
+  .seg button:not([aria-pressed="true"]) .lt.tem { color: var(--vermelho); font-weight: 600; }
+  .resumo { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; font-size: .85rem; color: var(--suave); margin-bottom: .75rem; }
+  .resumo b { color: var(--texto); } .resumo .atr b { color: var(--vermelho); }
+  .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; align-items: start; }
+  @media (max-width: 820px) { .board { grid-template-columns: 1fr; } .seg .info { font-size: .72rem; } }
+  .col { background: #e9eef4; border-radius: var(--raio); min-width: 0; }
+  .col > header { display: flex; align-items: center; gap: .5rem; padding: .7rem .85rem; border-bottom: 3px solid var(--c); font-weight: 700; }
+  .col > header .n { margin-left: auto; color: var(--suave); font-weight: 400; font-size: .85rem; }
+  .col .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+  .col.sobre { outline: 2px dashed var(--azul); }
+  .lista { display: grid; gap: .55rem; padding: .65rem; min-height: 80px; }
+  .vaz { color: var(--suave); font-size: .85rem; text-align: center; padding: 1rem .4rem; border: 1px dashed #cbd5e1; border-radius: 8px; }
+  .dm { background: #fff; border: 1px solid var(--linha); border-radius: 10px; padding: .7rem; display: grid; gap: .45rem; cursor: pointer; box-shadow: var(--sombra); }
+  .dm.atrasada { border-color: var(--vermelho); }
+  .dm .topo-c { display: flex; gap: .5rem; align-items: start; }
+  .dm .esc { font-weight: 600; overflow-wrap: anywhere; }
+  .dm .prio { margin-left: auto; flex: none; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; padding: 1px 7px; border-radius: 99px; background: #e2e8f0; color: var(--suave); }
+  .dm .prio.alta { background: #fee2e2; color: var(--vermelho); }
+  .dm .svc { font-size: .9rem; overflow-wrap: anywhere; white-space: pre-line; max-height: 7.5em; overflow: hidden; }
+  .chips { display: flex; flex-wrap: wrap; gap: .3rem; font-size: .75rem; }
+  .chip { background: #e6ebf0; color: var(--suave); padding: 1px 7px; border-radius: 6px; }
+  .chip.emp { font-weight: 700; } .chip.tmf { background: var(--tmf); color: #fff; } .chip.d3 { background: var(--d3); color: #fff; }
+  .rodape { display: flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--suave); }
+  .rodape .venc { color: var(--vermelho); font-weight: 600; } .rodape .ok { color: var(--verde); }
+  .mvs { margin-left: auto; display: flex; gap: .3rem; }
+  .mv { border: 1px solid var(--linha); background: #f8fafc; border-radius: 6px; padding: 2px 8px; font-size: .75rem; cursor: pointer; font: inherit; font-size: .75rem; }
+  .dm.cancelada { opacity: .8; border-style: dashed; } .dm.cancelada .esc { text-decoration: line-through; }
+  .motivo { font-size: .82rem; color: var(--suave); font-style: italic; }
+  .canc { margin-top: 1rem; background: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: var(--raio); }
+  .canc > summary { cursor: pointer; padding: .7rem .9rem; font-weight: 600; color: var(--suave); }
+  .canc-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: .55rem; padding: 0 .7rem .7rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="barra" style="margin-bottom:.5rem">
+    <div><div class="sub" style="margin:0;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em">Fiscalização · SME Cuiabá</div><h1>Manutenções nas escolas</h1></div>
+    <span class="espaco"></span>
+    <button class="btn primario" id="btnNovo">+ Nova demanda</button>
+  </div>
+
+  <div class="seg" id="seg"></div>
+  <div class="resumo" id="resumo"></div>
+
+  <div class="barra">
+    <input id="busca" type="search" placeholder="Buscar escola, serviço, empresa ou OS" style="flex:1">
+    <select id="fTipo"><option value="">Todos os tipos</option></select>
+  </div>
+
+  <section class="board" id="board"></section>
+  <details class="canc" id="cancBox">
+    <summary>Canceladas (<span id="cancN">0</span>)</summary>
+    <div class="canc-lista" id="cancLista"></div>
+  </details>
+  <p class="sub" style="margin-top:1rem">Clique num cartão para editar. No computador dá para arrastar entre as colunas.</p>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="fDem">
+    <header><h2 id="dlgTitulo" style="margin:0">Nova demanda</h2><button class="fechar" type="button" data-fechar>×</button></header>
+    <div class="corpo grade">
+      <div class="largo"><label>Escola / unidade</label><input name="escola" required placeholder="Ex.: EMEB …"></div>
+      <div class="largo"><label>Serviço</label><textarea name="servico" required placeholder="O que precisa ser feito"></textarea></div>
+      <div><label>Empresa responsável</label><input name="empresa" list="empresas" placeholder="D3, TMF ou outra"></div>
+      <div><label>Tipo</label><select name="tipo">
+        <option>Manutenção predial</option><option>Elétrica</option><option>Hidráulica</option><option>Dedetização</option>
+        <option>Limpeza de caixa d'água</option><option>Vistoria</option><option>Medição</option><option>Outro</option></select></div>
+      <div><label>Recebida em</label><input name="recebido" type="date"></div>
+      <div><label>Prazo</label><input name="prazo" type="date"></div>
+      <div><label>Prioridade</label><select name="prioridade"><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option></select></div>
+      <div><label>Situação</label><select name="status"><option value="afazer">A fazer</option><option value="andamento">Em andamento</option><option value="concluido">Concluído</option><option value="cancelada">Cancelada</option></select></div>
+      <div><label>Nº OS / processo</label><input name="os" placeholder="Opcional"></div>
+      <div><label>Concluída em</label><input name="concluido" type="date"></div>
+      <div class="largo"><label>Observações</label><textarea name="obs" placeholder="Contato, fotos pendentes, pendências da empresa…"></textarea></div>
+      <div class="largo" id="boxMotivo" hidden><label>Motivo do cancelamento</label><textarea name="motivo" placeholder="Ex.: repassada para outra empresa, demanda duplicada…"></textarea></div>
+    </div>
+    <footer>
+      <button class="btn perigo" id="btnExcluir" type="button">Excluir</button>
+      <button class="btn" id="btnTarefa" type="button" title="Cria um cartão no quadro SME das Tarefas">→ Tarefa</button>
+      <span class="espaco"></span>
+      <button class="btn" type="button" data-fechar>Fechar</button>
+      <button class="btn primario" value="gravar">Gravar</button>
+    </footer>
+  </form>
+</dialog>
+<datalist id="empresas"></datalist>
+
+<script type="module">
+import { sb, exigirLogin, montarCabecalho } from '../comum/supabase.js';
+import { esc, data, diasAte, hojeISO, aviso, erro, pref, preencherForm, lerForm } from '../comum/ui.js';
+
+const user = await exigirLogin();
+montarCabecalho('manutencoes', user);
+
+const COLS = [
+  { id: 'afazer', nome: 'A fazer', c: 'var(--todo)' },
+  { id: 'andamento', nome: 'Em andamento', c: 'var(--doing)' },
+  { id: 'concluido', nome: 'Concluído', c: 'var(--done)' },
+];
+const EMPRESAS = [['', 'Todas', ''], ['TMF', 'TMF', ' · Contr. 035'], ['D3', 'D3', ' · Contr. 034']];
+const $ = id => document.getElementById(id);
+document.querySelectorAll('[data-fechar]').forEach(b => b.onclick = () => b.closest('dialog').close());
+const f = $('fDem');
+let itens = [], editando = null, empSel = pref.ler('manut.emp', '');
+
+function empDe(nome) {
+  const n = String(nome || '').toUpperCase();
+  if (/\bTMF\b/.test(n)) return 'TMF';
+  if (/\bD ?3\b|\bD ?TR[EÊ]S\b|GON[CÇ]ALVES/.test(n)) return 'D3';
+  return '';
+}
+const atrasada = i => !['concluido', 'cancelada'].includes(i.status) && i.prazo && diasAte(i.prazo) < 0;
+
+async function carregar() {
+  const { data: d, error } = await sb.from('manutencoes').select('*');
+  if (error) {
+    erro(error, 'Erro ao carregar');
+    if (/relation|does not exist|schema cache/i.test(error.message)) $('board').innerHTML = '<div class="card" style="grid-column:1/-1">Falta criar a tabela: rode <code>banco/0002_manutencoes.sql</code> no Editor SQL do Supabase.</div>';
+    return;
+  }
+  itens = d; desenhar();
+}
+
+function desenhar() {
+  const tipos = [...new Set(itens.map(i => i.tipo).filter(Boolean))].sort();
+  const tSel = $('fTipo').value;
+  $('fTipo').innerHTML = '<option value="">Todos os tipos</option>' + tipos.map(t => `<option ${t === tSel ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  $('empresas').innerHTML = [...new Set(['D3', 'TMF', ...itens.map(i => i.empresa).filter(Boolean)])].map(e => `<option value="${esc(e)}">`).join('');
+
+  $('seg').innerHTML = EMPRESAS.map(([k, nm, ct]) => {
+    const s = itens.filter(i => !k || empDe(i.empresa) === k);
+    const abertas = s.filter(i => !['concluido', 'cancelada'].includes(i.status)).length, lt = s.filter(atrasada).length;
+    return `<button type="button" data-k="${k}" aria-pressed="${empSel === k}"><span class="nm">${nm}<small style="font-weight:500;font-size:.75rem">${ct}</small></span>
+      <span class="info">${abertas} em aberto · <span class="lt ${lt ? 'tem' : ''}">${lt} atrasada${lt === 1 ? '' : 's'}</span></span></button>`;
+  }).join('');
+
+  const sc = itens.filter(i => !empSel || empDe(i.empresa) === empSel);
+  const cnt = s => sc.filter(i => i.status === s).length;
+  $('resumo').innerHTML = `<span><b>${sc.length}</b> demandas</span><span><b>${cnt('afazer')}</b> a fazer</span><span><b>${cnt('andamento')}</b> em andamento</span>
+    <span><b>${cnt('concluido')}</b> concluídas</span><span><b>${cnt('cancelada')}</b> canceladas</span><span class="atr"><b>${sc.filter(atrasada).length}</b> com prazo vencido</span>`;
+
+  const q = $('busca').value.trim().toLowerCase(), t = $('fTipo').value;
+  const vis = sc.filter(i => (!t || i.tipo === t) && (!q || [i.escola, i.servico, i.empresa, i.os, i.obs].join(' ').toLowerCase().includes(q)));
+
+  $('board').innerHTML = COLS.map(c => {
+    const l = vis.filter(i => i.status === c.id).sort((a, b) => c.id === 'concluido'
+      ? (b.concluido || '').localeCompare(a.concluido || '')
+      : (a.prazo || '9999').localeCompare(b.prazo || '9999') || (a.prioridade === 'alta' ? -1 : 0) - (b.prioridade === 'alta' ? -1 : 0) || (a.recebido || '').localeCompare(b.recebido || ''));
+    return `<div class="col" data-col="${c.id}" style="--c:${c.c}"><header><span class="dot"></span>${c.nome}<span class="n">${l.length}</span></header>
+      <div class="lista">${l.length ? l.map(cartao).join('') : `<div class="vaz">${c.id === 'afazer' ? 'Nenhuma demanda aguardando.' : c.id === 'andamento' ? 'Nada em execução.' : 'Nenhuma concluída.'}</div>`}</div></div>`;
+  }).join('');
+
+  const canc = vis.filter(i => i.status === 'cancelada').sort((a, b) => (b.cancelado || '').localeCompare(a.cancelado || ''));
+  $('cancN').textContent = canc.length;
+  $('cancLista').innerHTML = canc.length ? canc.map(cartao).join('') : '<div class="vaz">Nenhuma demanda cancelada.</div>';
+}
+
+function cartao(i) {
+  const idx = COLS.findIndex(c => c.id === i.status), canc = i.status === 'cancelada';
+  let prazo = '';
+  if (canc) prazo = `Cancelada${i.cancelado ? ' em ' + data(i.cancelado) : ''}`;
+  else if (i.status === 'concluido') prazo = `<span class="ok">✓ ${i.concluido ? data(i.concluido) : 'concluída'}</span>`;
+  else if (i.prazo) { const d = diasAte(i.prazo); prazo = `<span class="${d < 0 ? 'venc' : ''}">Prazo ${data(i.prazo)}${d < 0 ? ` · ${-d}d atraso` : d === 0 ? ' · hoje' : ''}</span>`; }
+  else if (i.recebido) prazo = `Recebida ${data(i.recebido)} · há ${-diasAte(i.recebido)}d`;
+  const e = empDe(i.empresa).toLowerCase();
+  return `<article class="dm ${atrasada(i) ? 'atrasada' : ''} ${canc ? 'cancelada' : ''}" draggable="${!canc}" data-id="${i.id}">
+    <div class="topo-c"><div class="esc">${esc(i.escola)}</div><span class="prio ${i.prioridade}">${i.prioridade === 'media' ? 'média' : esc(i.prioridade)}</span></div>
+    <div class="svc">${esc(i.servico)}</div>${canc && i.motivo ? `<div class="motivo">Motivo: ${esc(i.motivo)}</div>` : ''}
+    <div class="chips">${i.empresa ? `<span class="chip emp ${e}">${esc(i.empresa)}</span>` : ''}${i.tipo ? `<span class="chip">${esc(i.tipo)}</span>` : ''}${i.os ? `<span class="chip">OS ${esc(i.os)}</span>` : ''}</div>
+    <div class="rodape">${prazo}<span class="mvs">
+      ${canc ? '<button class="mv" type="button" data-reabrir="1">Reabrir</button>' : ''}
+      ${!canc && idx > 0 ? '<button class="mv" type="button" data-mv="-1">◀</button>' : ''}
+      ${!canc && idx < 2 ? `<button class="mv" type="button" data-mv="1">${COLS[idx + 1].nome} ▶</button>` : ''}</span></div>
+  </article>`;
+}
+
+async function mudarStatus(id, status) {
+  const i = itens.find(x => x.id === id); if (!i || i.status === status) return;
+  const p = { status, concluido: status === 'concluido' ? (i.concluido || hojeISO()) : null, cancelado: status === 'cancelada' ? (i.cancelado || hojeISO()) : null };
+  Object.assign(i, p); desenhar();
+  const { error } = await sb.from('manutencoes').update(p).eq('id', id);
+  if (error) { erro(error, 'Não gravou'); carregar(); }
+}
+
+function cliqueCartao(e) {
+  const card = e.target.closest('.dm'); if (!card) return;
+  const i = itens.find(x => x.id === card.dataset.id);
+  const mv = e.target.closest('[data-mv]');
+  if (mv) return mudarStatus(i.id, COLS[COLS.findIndex(c => c.id === i.status) + Number(mv.dataset.mv)].id);
+  if (e.target.closest('[data-reabrir]')) return mudarStatus(i.id, 'afazer');
+  abrir(i);
+}
+$('board').onclick = cliqueCartao; $('cancLista').onclick = cliqueCartao;
+$('board').addEventListener('dragstart', e => { const c = e.target.closest('.dm'); if (c) e.dataTransfer.setData('text/plain', c.dataset.id); });
+$('board').addEventListener('dragover', e => { const c = e.target.closest('.col'); if (!c) return; e.preventDefault(); document.querySelectorAll('.col.sobre').forEach(x => x !== c && x.classList.remove('sobre')); c.classList.add('sobre'); });
+$('board').addEventListener('drop', e => { const c = e.target.closest('.col'); if (!c) return; e.preventDefault(); c.classList.remove('sobre'); mudarStatus(e.dataTransfer.getData('text/plain'), c.dataset.col); });
+$('board').addEventListener('dragend', () => document.querySelectorAll('.col.sobre').forEach(x => x.classList.remove('sobre')));
+
+$('seg').onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; empSel = b.dataset.k; pref.gravar('manut.emp', empSel); desenhar(); };
+$('busca').oninput = desenhar; $('fTipo').onchange = desenhar;
+
+const motivo = () => { $('boxMotivo').hidden = f.status.value !== 'cancelada'; };
+f.status.onchange = motivo;
+
+function abrir(i) {
+  editando = i || null;
+  $('dlgTitulo').textContent = i ? 'Editar demanda' : 'Nova demanda';
+  $('btnExcluir').hidden = !i; $('btnTarefa').hidden = !i;
+  preencherForm(f, i || { tipo: 'Manutenção predial', prioridade: 'media', status: 'afazer', recebido: hojeISO(), empresa: empSel });
+  motivo(); $('dlg').showModal();
+}
+$('btnNovo').onclick = () => abrir(null);
+
+f.addEventListener('submit', async e => {
+  if (e.submitter?.value !== 'gravar') return;
+  e.preventDefault();
+  const d = lerForm(f);
+  if (d.status === 'concluido' && !d.concluido) d.concluido = hojeISO();
+  if (d.status !== 'concluido') d.concluido = null;
+  d.cancelado = d.status === 'cancelada' ? (editando?.cancelado || hojeISO()) : null;
+  const r = editando ? await sb.from('manutencoes').update(d).eq('id', editando.id) : await sb.from('manutencoes').insert(d);
+  if (r.error) return erro(r.error, 'Não gravou');
+  $('dlg').close(); aviso('Demanda gravada.'); carregar();
+});
+
+$('btnExcluir').onclick = async () => {
+  if (!editando || !confirm(`Excluir a demanda de "${editando.escola}"?`)) return;
+  const { error } = await sb.from('manutencoes').delete().eq('id', editando.id);
+  if (error) return erro(error, 'Não excluiu');
+  $('dlg').close(); aviso('Demanda excluída.'); carregar();
+};
+
+$('btnTarefa').onclick = async () => {
+  const titulo = prompt('Título da tarefa:', `${editando.escola} — ${editando.servico.slice(0, 80)}`);
+  if (!titulo) return;
+  const { error } = await sb.from('tarefas').insert({ quadro: 'SME', titulo, etiqueta: editando.empresa || 'Manutenção', prazo: f.prazo.value || null, prioridade: f.prioridade.value, ordem: Date.now() / 1e9 });
+  if (error) return erro(error, 'Não criou a tarefa');
+  aviso('Tarefa criada no quadro SME.');
+};
+
+carregar();
+</script>
+</body>
+</html>
